@@ -177,8 +177,7 @@ int main(int argc, char **argv) {
         lastMaxDiff = fmax(tmpMaxDiffCenter, tmpMaxDiffBorder);
         if(!(maxDiff >= EPSILON)) break;
     }
-    double tmpMaxDiff = calculationMaxDiff(previousFunc, layerHeights[rank], displs[rank]);
-    MPI_Allreduce(&tmpMaxDiff, &maxDiff, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+    maxDiff = calculationMaxDiff(previousFunc, layerHeights[rank], displs[rank]);
     finishTime = MPI_Wtime();
     if (rank == 0) {
         printf("Time: %lf\n", finishTime - startTime);
