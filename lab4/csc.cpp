@@ -2,7 +2,7 @@
 #include <mpi.h>
 #include <vector>
 
-#define N 100
+#define N 500
 
 #define X_0 -1.0
 #define Y_0 -1.0
