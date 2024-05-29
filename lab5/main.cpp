@@ -1,4 +1,4 @@
-#include <cmath>
+#include <math.h>
 #include <mpi.h>
 #include <pthread.h>
 #include <vector>
@@ -9,12 +9,12 @@
 #define NO_TASKS_TO_SHARE (-2)
 #define SENDING_TASKS 1111
 #define SENDING_TASK_COUNT 2222
+#define REQUEST 3333
 
 struct threadArgs{
     int rank{};
     int size{};
     int remainingTasks{};
-    double summaryDisbalance = 0;
     pthread_mutex_t mutex{};
     pthread_t threads[2]{};
     std::vector<int> tasks;
@@ -22,7 +22,7 @@ struct threadArgs{
 
 void initTasks(std::vector<int>& tasks, int taskCount, int iteration, int rank, int size) {
     for(int i = 0; i < taskCount; i++) {
-        tasks[i] = abs(50 - i % 100) * abs(rank - (iteration % size)) * 100;
+        tasks[i] = abs(rank - (iteration % size)) * 1000 * (30 - i % 30);
     }
 }
 
@@ -44,7 +44,7 @@ void* solver(void* args) {
     int rank = tArgs->rank;
     int size = tArgs->size;
     tArgs->tasks.resize(TASK_COUNT);
-    double startTime, finishTime, iterationDuration, shortest, longest;
+    double startTime, finishTime, iterationDuration;
     for (int i = 0; i < LISTS_COUNT; i++) {
         MPI_Barrier(MPI_COMM_WORLD);
         tArgs->remainingTasks = TASK_COUNT;
@@ -55,11 +55,10 @@ void* solver(void* args) {
         for (int procIdx = 0; procIdx < size; procIdx++) {
             if (procIdx != rank) {
                 MPI_Send(&rank, 1, MPI_INT,
-                         procIdx, 888, MPI_COMM_WORLD);
+                         procIdx, REQUEST, MPI_COMM_WORLD);
                 MPI_Recv(&response, 1, MPI_INT,
                          procIdx, SENDING_TASK_COUNT,MPI_COMM_WORLD, MPI_STATUS_IGNORE);
                 if (response != NO_TASKS_TO_SHARE) {
-                    //получает задачи от procIdx
                     MPI_Recv(&tArgs->tasks[0], response, MPI_INT,
                              procIdx, SENDING_TASKS,MPI_COMM_WORLD, MPI_STATUS_IGNORE);
                     pthread_mutex_lock(&tArgs->mutex);
@@ -71,14 +70,12 @@ void* solver(void* args) {
         }
         finishTime = MPI_Wtime();
         iterationDuration = finishTime - startTime;
-        MPI_Allreduce(&iterationDuration, &longest, 1, MPI_DOUBLE, MPI_MAX,MPI_COMM_WORLD);
-        MPI_Allreduce(&iterationDuration, &shortest, 1, MPI_DOUBLE, MPI_MIN,MPI_COMM_WORLD);
-        printf("iteration do %f %f in time %f\n", longest, shortest, iterationDuration);
-        tArgs->summaryDisbalance += (longest - shortest) / longest;
+        printf("iteration in time %f\n", iterationDuration);
+        MPI_Barrier(MPI_COMM_WORLD);
     }
     int signal = SOLVER_FINISHED_WORK;
     if (size != 1) {
-        MPI_Send(&signal, 1, MPI_INT, rank, 888, MPI_COMM_WORLD);
+        MPI_Send(&signal, 1, MPI_INT, rank, REQUEST, MPI_COMM_WORLD);
     }
     return nullptr;
 }
@@ -89,7 +86,7 @@ void* reciever(void* args) {
     int rankSentRequest, answer, request;
     MPI_Status status;
     while (true) {
-        MPI_Recv(&request, 1, MPI_INT, MPI_ANY_SOURCE, 888, MPI_COMM_WORLD, &status);
+        MPI_Recv(&request, 1, MPI_INT, MPI_ANY_SOURCE, REQUEST, MPI_COMM_WORLD, &status);
         if (request == SOLVER_FINISHED_WORK) {
             return nullptr;
         }
@@ -99,7 +96,8 @@ void* reciever(void* args) {
             answer = tArgs->remainingTasks / (rank + 1);
             tArgs->remainingTasks = tArgs->remainingTasks / (rank + 1);
             printf("sharing %d from %d to %d\n", answer, rank, rankSentRequest);
-            MPI_Send(&answer, 1, MPI_INT, rankSentRequest, SENDING_TASK_COUNT, MPI_COMM_WORLD);
+            MPI_Send(&answer, 1, MPI_INT, rankSentRequest, SENDING_TASK_COUNT,
+                     MPI_COMM_WORLD);
             MPI_Send(&tArgs->tasks[TASK_COUNT - answer], answer, MPI_INT,
                      rankSentRequest, SENDING_TASKS, MPI_COMM_WORLD);
         } else {
@@ -129,7 +127,6 @@ int main() {
     MPI_Reduce(&finish, &time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
     if (args.rank == 0) {
         printf("---------------\nTime %f\n", time);
-        printf("Disbalance %f%%\n", args.summaryDisbalance / LISTS_COUNT * 100);
     }
     MPI_Finalize();
 }
